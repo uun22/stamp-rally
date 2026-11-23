@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ลงทะเบียน / สะสมแต้ม</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand: #0E7C66; --brand-ink: #ffffff;
+    --bg: #F4F5F3; --card: #ffffff; --ink: #1B1F1D; --muted: #69716D; --line: #E2E5E2;
+    --gold: #B7811A; --gold-bg: #FFF6E0; --ok-bg: #E7F5EF; --danger: #B3261E;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: 'Noto Sans Thai', system-ui, sans-serif; background: var(--bg); color: var(--ink); -webkit-text-size-adjust: 100%; }
+  .wrap { max-width: 440px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; margin: 4px 0 2px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  input, select { width: 100%; font: inherit; font-size: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); }
+  input:focus, select:focus { outline: 2px solid var(--brand); border-color: transparent; }
+  .row { display: flex; gap: 10px; } .row > div { flex: 1; min-width: 0; }
+  .consent { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--muted); margin-top: 16px; font-weight: 400; }
+  .consent input { width: 20px; height: 20px; flex: none; margin-top: 2px; }
+  button { font: inherit; font-weight: 600; font-size: 16px; border: 0; border-radius: 12px; padding: 14px; width: 100%; cursor: pointer; }
+  .primary { background: var(--brand); color: var(--brand-ink); margin-top: 18px; }
+  .primary:disabled { opacity: .6; }
+  .ghost { background: transparent; color: var(--brand); border: 1px solid var(--line); margin-top: 12px; }
+  .err { color: var(--danger); font-size: 14px; min-height: 20px; margin-top: 10px; }
+  .center { text-align: center; }
+  .name { font-size: 20px; font-weight: 700; margin: 0; }
+  .dept { color: var(--muted); font-size: 14px; margin: 2px 0 14px; }
+  .qrbox { background: #fff; padding: 14px; border-radius: 14px; display: inline-block; border: 1px solid var(--line); }
+  .qrbox img, .qrbox canvas { display: block; width: 240px; height: 240px; }
+  .banner { border-radius: 12px; padding: 12px 14px; font-size: 15px; margin: 16px 0 0; background: var(--ok-bg); }
+  .banner.complete { background: var(--gold-bg); color: #5B3F00; font-weight: 600; }
+  .banner.redeemed { background: #EDEDED; color: #333; font-weight: 600; }
+  .card.complete { border: 2px solid var(--gold); }
+  .progress { display: flex; justify-content: space-between; align-items: baseline; margin: 18px 0 8px; }
+  .progress b { font-size: 18px; }
+  .dots { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .dot { aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: #ECEEEC; color: #9AA19D; }
+  .dot.on { background: var(--brand); color: #fff; }
+  .updated { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .spinner { width: 36px; height: 36px; border: 4px solid var(--line); border-top-color: var(--brand); border-radius: 50%; margin: 60px auto 14px; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="eventName">Stamp Rally</h1>
+  <p class="sub" id="eventSub">ลงทะเบียนและสะสมแต้มให้ครบทุกฐาน</p>
+
+  <!-- Loading -->
+  <section id="loading" class="center">
+    <div class="spinner"></div>
+    <div class="sub">กำลังโหลด...</div>
+  </section>
+
+  <!-- Error -->
+  <section id="error" class="card center" hidden>
+    <p id="errorMsg" style="margin:0"></p>
+    <button class="ghost" onclick="location.reload()">ลองใหม่</button>
+  </section>
+
+  <!-- Register -->
+  <section id="register" class="card" hidden>
+    <form id="regForm" novalidate>
+      <div class="row">
+        <div>
+          <label for="firstName">ชื่อ</label>
+          <input id="firstName" autocomplete="given-name" maxlength="50" required>
+        </div>
+        <div>
+          <label for="lastName">นามสกุล</label>
+          <input id="lastName" autocomplete="family-name" maxlength="50" required>
+        </div>
+      </div>
+      <label for="phone">เบอร์โทร</label>
+      <input id="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="12" placeholder="0812345678" required>
+      <label for="deptSelect">แผนก</label>
+      <select id="deptSelect" hidden></select>
+      <input id="deptInput" maxlength="60" placeholder="ระบุแผนก" hidden>
+      <label class="consent">
+        <input type="checkbox" id="consent">
+        <span>ยินยอมให้เก็บชื่อ เบอร์โทร และแผนก เพื่อใช้ในกิจกรรมนี้เท่านั้น</span>
+      </label>
+      <button class="primary" id="regBtn" type="submit">ลงทะเบียน</button>
+      <div class="err" id="regErr"></div>
+    </form>
+  </section>
+
+  <!-- Player card -->
+  <section id="card" class="card center" hidden>
+    <p class="name" id="pName"></p>
+    <p class="dept" id="pDept"></p>
+    <div class="qrbox"><div id="qr"></div></div>
+    <div class="banner" id="banner"></div>
+    <div class="progress"><span>แต้มสะสม</span><b id="count">0/7</b></div>
+    <div class="dots" id="dots"></div>
+    <button class="ghost" id="refreshBtn" type="button">อัปเดตแต้ม</button>
+    <div class="updated" id="updated"></div>
+  </section>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+/* ============ CONFIG — แก้ตรงนี้ ============ */
+const CONFIG = {
+  LIFF_ID: '2012760466-Db05OsP6',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyxvteR4zrRylmSpSdVV_nQvquKpjk-s0JCUHcE3cyEfFW8lyr6z4oFieA2ALEHccDE/exec', // https://script.google.com/macros/s/xxxx/exec
+  EVENT_NAME: 'Stamp Rally',
+  EVENT_SUB: 'ลงทะเบียนและสะสมแต้มให้ครบทุกฐาน',
+  TOTAL: 7,
+  // รายชื่อแผนกให้เลือก — ถ้าเป็น [] จะเปลี่ยนเป็นช่องให้พิมพ์เอง
+  DEPARTMENTS: ['ฝ่ายขาย', 'การตลาด', 'บัญชี/การเงิน', 'HR', 'IT', 'ปฏิบัติการ', 'อื่นๆ']
+};
+/* =========================================== */
+
+const LS_KEY = 'sr_player_v1';
+const $ = (id) => document.getElementById(id);
+let idToken = null;
+let state = null;
+let drawnQr = null;
+let refreshing = false;
+
+function show(id) {
+  ['loading', 'error', 'register', 'card'].forEach((s) => { $(s).hidden = s !== id; });
+}
+function fatal(msg) { $('errorMsg').textContent = msg; show('error'); }
+function lsGet() { try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { return null; } }
+function lsSet(v) { try { if (v) localStorage.setItem(LS_KEY, JSON.stringify(v)); else localStorage.removeItem(LS_KEY); } catch (e) {} }
+
+async function api(payload, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // กัน CORS preflight
+      body: JSON.stringify(payload),
+      redirect: 'follow',
+      signal: ctrl.signal
+    });
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function save(p) {
+  lsSet({ token: p.token, qr: p.qr, firstName: p.firstName, lastName: p.lastName,
+          department: p.department, done: p.done, total: p.total, redeemed: p.redeemed });
+}
+
+function handleLineErr(r) {
+  if (r.error === 'INVALID_LINE_TOKEN' || r.error === 'NO_LINE_TOKEN') {
+    if (liff.isInClient()) {
+      fatal('เซสชันหมดอายุ กรุณาปิดหน้านี้ แล้วกดเมนูลงทะเบียนอีกครั้ง');
+    } else {
+      liff.logout();
+      liff.login({ redirectUri: location.href });
+    }
+    return true;
+  }
+  return false;
+}
+
+async function main() {
+  document.title = CONFIG.EVENT_NAME;
+  $('eventName').textContent = CONFIG.EVENT_NAME;
+  $('eventSub').textContent = CONFIG.EVENT_SUB;
+
+  // แสดง QR จากเครื่องก่อน (ใช้ได้แม้เน็ตไม่ดี) แล้วค่อยอัปเดต
+  const cached = lsGet();
+  if (cached && cached.token) renderCard(cached, true);
+
+  try {
+    await liff.init({ liffId: CONFIG.LIFF_ID });
+  } catch (e) {
+    if (!cached) fatal('เปิดผ่าน LINE ไม่สำเร็จ ลองปิดแล้วเปิดใหม่');
+    return;
+  }
+  if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+
+  idToken = liff.getIDToken();
+  if (!idToken) { fatal('ระบบยังไม่ได้เปิดสิทธิ์ openid ใน LIFF — แจ้งผู้ดูแลระบบ'); return; }
+
+  try {
+    const r = await api({ action: 'me', idToken });
+    if (!r.ok) {
+      if (handleLineErr(r)) return;
+      if (!cached) fatal(r.message || 'เกิดข้อผิดพลาด');
+      return;
+    }
+    if (!r.registered) {
+      lsSet(null); // ข้อมูลในเครื่องไม่ใช่ของบัญชีนี้
+      showRegister();
+      return;
+    }
+    save(r);
+    renderCard(r);
+  } catch (e) {
+    if (!cached) fatal('เชื่อมต่อไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
+    else $('updated').textContent = 'ออฟไลน์ — แสดง QR ล่าสุด (ยังใช้สแกนได้)';
+  }
+}
+
+function showRegister() {
+  const sel = $('deptSelect');
+  const inp = $('deptInput');
+  if (CONFIG.DEPARTMENTS.length) {
+    sel.innerHTML = '<option value="">— เลือกแผนก —</option>' +
+      CONFIG.DEPARTMENTS.map((d) => `<option>${d.replace(/</g, '&lt;')}</option>`).join('');
+    sel.hidden = false; inp.hidden = true;
+  } else {
+    sel.hidden = true; inp.hidden = false;
+  }
+  show('register');
+}
+
+$('regForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('regErr');
+  const phone = $('phone').value.replace(/\D/g, '');
+  const dept = CONFIG.DEPARTMENTS.length ? $('deptSelect').value : $('deptInput').value.trim();
+  const payload = {
+    action: 'register', idToken,
+    firstName: $('firstName').value.trim(),
+    lastName: $('lastName').value.trim(),
+    phone, department: dept,
+    consent: $('consent').checked
+  };
+  if (!payload.firstName || !payload.lastName) { err.textContent = 'กรุณากรอกชื่อและนามสกุล'; return; }
+  if (!/^0\d{8,9}$/.test(phone)) { err.textContent = 'เบอร์โทรไม่ถูกต้อง'; return; }
+  if (!dept) { err.textContent = 'กรุณาระบุแผนก'; return; }
+  if (!payload.consent) { err.textContent = 'กรุณากดยินยอมการเก็บข้อมูล'; return; }
+
+  const btn = $('regBtn');
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก...'; err.textContent = '';
+  try {
+    const r = await api(payload);
+    if (r.ok) { save(r); renderCard(r); }
+    else if (!handleLineErr(r)) err.textContent = r.message || 'บันทึกไม่สำเร็จ';
+  } catch (ex) {
+    err.textContent = 'เชื่อมต่อไม่ได้ ลองกดอีกครั้ง';
+  } finally {
+    btn.disabled = false; btn.textContent = 'ลงทะเบียน';
+  }
+});
+
+function renderCard(p, fromCache) {
+  state = p;
+  $('pName').textContent = `${p.firstName} ${p.lastName}`;
+  $('pDept').textContent = p.department || '';
+
+  if (drawnQr !== p.qr) {
+    $('qr').innerHTML = '';
+    new QRCode($('qr'), { text: p.qr, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+    drawnQr = p.qr;
+  }
+
+  const total = p.total || CONFIG.TOTAL;
+  const done = new Set((p.done || []).map(String));
+  const dots = [];
+  for (let i = 1; i <= total; i++) {
+    dots.push(`<div class="dot${done.has(String(i)) ? ' on' : ''}">${i}</div>`);
+  }
+  $('dots').innerHTML = dots.join('');
+  $('dots').style.gridTemplateColumns = `repeat(${total}, 1fr)`;
+  $('count').textContent = `${done.size}/${total}`;
+
+  const banner = $('banner');
+  const card = $('card');
+  card.classList.remove('complete');
+  if (p.redeemed) {
+    banner.className = 'banner redeemed';
+    banner.textContent = 'แลกของรางวัลเรียบร้อยแล้ว ขอบคุณที่ร่วมกิจกรรม 🎉';
+  } else if (done.size >= total) {
+    banner.className = 'banner complete';
+    banner.textContent = 'ครบแล้ว! ไปที่จุดแลกของรางวัล แล้วแสดง QR นี้ให้สตาฟ';
+    card.classList.add('complete');
+  } else {
+    banner.className = 'banner';
+    banner.textContent = 'เล่นแต่ละฐานเสร็จ แสดง QR นี้ให้สตาฟสแกนเพื่อรับแต้ม';
+  }
+
+  $('updated').textContent = fromCache
+    ? 'ข้อมูลล่าสุดในเครื่อง — กำลังอัปเดต...'
+    : 'อัปเดตเมื่อ ' + new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  show('card');
+}
+
+async function refreshStatus() {
+  if (refreshing || !state || !state.token) return;
+  refreshing = true;
+  $('refreshBtn').disabled = true;
+  $('updated').textContent = 'กำลังอัปเดต...';
+  try {
+    const r = await api({ action: 'status', token: state.token });
+    if (r.ok) { save(r); renderCard(r); }
+    else $('updated').textContent = r.message || 'อัปเดตไม่สำเร็จ';
+  } catch (e) {
+    $('updated').textContent = 'ออฟไลน์ — QR ยังใช้สแกนได้ตามปกติ';
+  } finally {
+    refreshing = false;
+    $('refreshBtn').disabled = false;
+  }
+}
+
+$('refreshBtn').addEventListener('click', refreshStatus);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !$('card').hidden) refreshStatus();
+});
+
+main();
+</script>
+</body>
+</html>

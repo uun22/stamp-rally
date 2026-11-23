@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>สแกนแต้ม (สตาฟ)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --brand: #0E7C66; --redeem: #B7811A;
+    --bg: #F4F5F3; --card: #fff; --ink: #1B1F1D; --muted: #69716D; --line: #E2E5E2;
+    --good: #1E8E4E; --good-bg: #E3F6EA; --warn: #9A6A00; --warn-bg: #FFF4D6; --bad: #B3261E; --bad-bg: #FDE7E5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: 'Noto Sans Thai', system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 16px 16px 32px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
+  input, select { width: 100%; font: inherit; font-size: 18px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); }
+  button { font: inherit; font-weight: 600; font-size: 16px; border: 0; border-radius: 12px; padding: 14px; cursor: pointer; }
+  .primary { background: var(--brand); color: #fff; width: 100%; margin-top: 16px; }
+  .primary:disabled { opacity: .6; }
+  .err { color: var(--bad); font-size: 14px; min-height: 20px; margin-top: 10px; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--brand); color: #fff; border-radius: 14px; padding: 12px 14px; }
+  body.redeem .topbar { background: var(--redeem); }
+  .topbar .st { font-size: 20px; font-weight: 700; }
+  .topbar small { display: block; opacity: .85; font-size: 12px; font-weight: 400; }
+  .topbar button { background: rgba(255,255,255,.18); color: #fff; padding: 8px 12px; font-size: 14px; }
+  .queue { background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 8px 12px; font-size: 14px; margin-top: 10px; font-weight: 600; }
+
+  #reader { width: 100%; margin-top: 12px; border-radius: 14px; overflow: hidden; background: #000; min-height: 240px; }
+  #reader video { width: 100% !important; display: block; }
+  .camerr { background: var(--bad-bg); color: var(--bad); padding: 12px; border-radius: 10px; margin-top: 12px; font-size: 14px; }
+
+  .result { margin-top: 12px; border-radius: 14px; padding: 16px; text-align: center; min-height: 110px; display: flex; flex-direction: column; justify-content: center; background: var(--card); border: 1px solid var(--line); transition: background .15s; }
+  .result .t { font-size: 24px; font-weight: 700; }
+  .result .d { font-size: 17px; margin-top: 4px; white-space: pre-line; }
+  .result.good { background: var(--good-bg); border-color: var(--good); color: var(--good); }
+  .result.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+  .result.bad  { background: var(--bad-bg);  border-color: var(--bad);  color: var(--bad); }
+  .result.wait { color: var(--muted); }
+
+  .manual { display: flex; gap: 8px; margin-top: 12px; }
+  .manual input { flex: 1; min-width: 0; font-size: 16px; }
+  .manual button { background: var(--ink); color: #fff; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 13px; margin-top: 10px; text-align: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Login -->
+  <section id="login" class="card">
+    <h1>เข้าสู่ระบบสตาฟ</h1>
+    <label for="station">ประจำจุด</label>
+    <select id="station"></select>
+    <label for="pin">PIN</label>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8">
+    <button class="primary" id="loginBtn">เริ่มสแกน</button>
+    <div class="err" id="loginErr"></div>
+  </section>
+
+  <!-- Scan -->
+  <section id="scan" hidden>
+    <div class="topbar">
+      <div class="st"><span id="stName"></span><small id="stHint"></small></div>
+      <button id="logoutBtn" type="button">เปลี่ยนจุด</button>
+    </div>
+    <div class="queue" id="queueBar" hidden></div>
+    <div id="reader"></div>
+    <div class="camerr" id="camErr" hidden>
+      เปิดกล้องไม่ได้ — กดอนุญาตกล้อง หรือเปิดลิงก์นี้ใน Chrome / Safari (ไม่ใช่ในแอป LINE)
+      <button type="button" style="margin-top:8px;background:#fff;color:var(--bad)" onclick="startCam()">ลองเปิดกล้องอีกครั้ง</button>
+    </div>
+    <div class="result wait" id="result"><div class="t" id="rTitle">พร้อมสแกน</div><div class="d" id="rDetail"></div></div>
+    <div class="manual">
+      <input id="manualPhone" type="tel" inputmode="numeric" placeholder="มือถือผู้เล่นใช้ไม่ได้? กรอกเบอร์">
+      <button id="manualBtn" type="button">บันทึก</button>
+    </div>
+    <div class="meta" id="meta"></div>
+  </section>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+/* ============ CONFIG — แก้ตรงนี้ ============ */
+const CONFIG = {
+  API_URL: 'https://script.google.com/macros/s/AKfycbyxvteR4zrRylmSpSdVV_nQvquKpjk-s0JCUHcE3cyEfFW8lyr6z4oFieA2ALEHccDE/exec',
+  QR_PREFIX: 'SR1:', // ต้องตรงกับ Code.gs
+  STATIONS: [
+    ['1', 'ฐาน 1'], ['2', 'ฐาน 2'], ['3', 'ฐาน 3'], ['4', 'ฐาน 4'],
+    ['5', 'ฐาน 5'], ['6', 'ฐาน 6'], ['7', 'ฐาน 7'], ['R', 'จุดแลกของรางวัล']
+  ]
+};
+/* =========================================== */
+
+const LS_AUTH = 'sr_staff_v1';
+const LS_QUEUE = 'sr_queue_v1';
+const $ = (id) => document.getElementById(id);
+let auth = null;
+let cam = null, camState = 'off';
+let busy = false, lastCode = '', lastAt = 0;
+let sessionOk = 0, failedQueued = 0;
+let audioCtx = null, wakeLock = null;
+
+/* ---------- storage ---------- */
+function lsGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+
+/* ---------- api ---------- */
+async function api(payload, timeoutMs = 12000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      redirect: 'follow',
+      signal: ctrl.signal
+    });
+    return await r.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/* ---------- feedback ---------- */
+function beep(kind) {
+  try {
+    if (!audioCtx) return;
+    const pattern = kind === 'good' ? [[880, 0.12]] : kind === 'warn' ? [[660, 0.1], [660, 0.1]] : [[220, 0.45]];
+    let at = audioCtx.currentTime;
+    pattern.forEach(([f, d]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = f; g.gain.value = 0.25;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(at); o.stop(at + d); at += d + 0.08;
+    });
+  } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(kind === 'bad' ? [300] : kind === 'warn' ? [80, 60, 80] : [60]); } catch (e) {}
+}
+
+function showResult(kind, title, detail) {
+  const el = $('result');
+  el.className = 'result ' + kind;
+  $('rTitle').textContent = title;
+  $('rDetail').textContent = detail || '';
+  if (kind !== 'wait') beep(kind);
+}
+
+function updateMeta() {
+  const q = lsGet(LS_QUEUE, []);
+  $('queueBar').hidden = q.length === 0;
+  $('queueBar').textContent = `เน็ตหลุด: รอส่ง ${q.length} รายการ (ส่งให้อัตโนมัติ)`;
+  $('meta').textContent = `สแกนสำเร็จรอบนี้ ${sessionOk} คน` + (failedQueued ? ` · ส่งย้อนหลังไม่ผ่าน ${failedQueued}` : '');
+}
+
+/* ---------- login ---------- */
+$('station').innerHTML = CONFIG.STATIONS.map(([id, n]) => `<option value="${id}">${n}</option>`).join('');
+
+$('loginBtn').addEventListener('click', async () => {
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+  const station = $('station').value, pin = $('pin').value.trim();
+  const btn = $('loginBtn');
+  btn.disabled = true; $('loginErr').textContent = '';
+  try {
+    const r = await api({ action: 'staffLogin', station, pin });
+    if (!r.ok) { $('loginErr').textContent = r.message || 'เข้าสู่ระบบไม่สำเร็จ'; return; }
+    auth = { station: r.station, pin, stationName: r.stationName, mode: r.mode, total: r.total };
+    lsSet(LS_AUTH, auth);
+    enterScan();
+  } catch (e) {
+    $('loginErr').textContent = 'เชื่อมต่อไม่ได้ ตรวจสอบอินเทอร์เน็ต';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('logoutBtn').addEventListener('click', async () => {
+  if (!confirm('ออกจากจุดนี้?')) return;
+  await logout();
+});
+
+async function logout(msg) {
+  await stopCam();
+  auth = null; lsSet(LS_AUTH, null);
+  $('pin').value = '';
+  $('scan').hidden = true; $('login').hidden = false;
+  $('loginErr').textContent = msg || '';
+  releaseWake();
+}
+
+/* ---------- scan screen ---------- */
+function enterScan() {
+  $('login').hidden = true; $('scan').hidden = false;
+  document.body.classList.toggle('redeem', auth.mode === 'redeem');
+  $('stName').textContent = auth.stationName;
+  $('stHint').textContent = auth.mode === 'redeem'
+    ? `ตรวจว่าครบ ${auth.total} ฐานแล้วจึงแจกของ`
+    : 'สแกน QR ผู้เล่นหลังเล่นจบ';
+  showResult('wait', 'พร้อมสแกน', '');
+  updateMeta();
+  startCam();
+  requestWake();
+  flushQueue();
+}
+
+async function startCam() {
+  if (cam) return;
+  $('camErr').hidden = true;
+  try {
+    cam = new Html5Qrcode('reader', { verbose: false, formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE] });
+    await cam.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: (w, h) => { const s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } },
+      onScan,
+      () => {}
+    );
+    camState = 'on';
+  } catch (e) {
+    try { cam && cam.clear(); } catch (x) {}
+    cam = null; camState = 'off';
+    $('camErr').hidden = false;
+  }
+}
+function pauseCam() { try { if (cam && camState === 'on') { cam.pause(true); camState = 'paused'; } } catch (e) {} }
+function resumeCam() { try { if (cam && camState === 'paused') { cam.resume(); camState = 'on'; } } catch (e) {} }
+async function stopCam() {
+  try { if (cam) { if (camState !== 'off') await cam.stop(); cam.clear(); } } catch (e) {}
+  cam = null; camState = 'off';
+}
+
+function onScan(text) {
+  const now = Date.now();
+  if (busy) return;
+  if (text === lastCode && now - lastAt < 4000) return; // กันยิงซ้ำจากเฟรมติดกัน
+  lastCode = text; lastAt = now;
+  if (text.indexOf(CONFIG.QR_PREFIX) !== 0) {
+    busy = true; pauseCam();
+    showResult('bad', 'QR ไม่ถูกต้อง', 'ไม่ใช่ QR ของงานนี้');
+    setTimeout(() => { busy = false; resumeCam(); }, 1500);
+    return;
+  }
+  submit({ code: text });
+}
+
+$('manualBtn').addEventListener('click', () => {
+  const phone = $('manualPhone').value.replace(/\D/g, '');
+  if (!/^0\d{8,9}$/.test(phone)) { showResult('bad', 'เบอร์ไม่ถูกต้อง', ''); return; }
+  if (busy) return;
+  $('manualPhone').value = '';
+  submit({ phone });
+});
+
+async function submit(who) {
+  busy = true; pauseCam();
+  showResult('wait', 'กำลังตรวจสอบ...', '');
+  try {
+    const r = await api(Object.assign({ action: 'scan', station: auth.station, pin: auth.pin }, who));
+    renderScan(r);
+  } catch (e) {
+    if (auth.mode === 'stamp') {
+      enqueue(who);
+      showResult('warn', 'เน็ตหลุด — บันทึกไว้แล้ว', 'ให้ผู้เล่นไปต่อได้เลย\nระบบจะส่งแต้มให้อัตโนมัติ');
+    } else {
+      showResult('bad', 'เชื่อมต่อไม่ได้', 'ยังตรวจสิทธิ์ไม่ได้ — ห้ามแจกของ\nลองสแกนใหม่อีกครั้ง');
+    }
+  }
+  setTimeout(() => { busy = false; resumeCam(); }, 1600);
+}
+
+function renderScan(r) {
+  if (r.ok) {
+    if (r.result === 'STAMPED') { sessionOk++; showResult('good', 'ได้แต้มแล้ว ✓', `${r.name}\n${r.count}/${r.total} ฐาน`); }
+    else if (r.result === 'DUPLICATE') showResult('warn', 'ได้แต้มฐานนี้ไปแล้ว', `${r.name}\n${r.count}/${r.total} ฐาน`);
+    else if (r.result === 'REDEEMED') { sessionOk++; showResult('good', 'แจกของรางวัลได้ ✓', r.name); }
+    updateMeta();
+    return;
+  }
+  switch (r.error) {
+    case 'NOT_COMPLETE': showResult('bad', 'ยังไม่ครบ — ห้ามแจก', `${r.name}\nขาดฐาน ${(r.missing || []).join(', ')}`); break;
+    case 'ALREADY_REDEEMED': showResult('bad', 'แลกไปแล้ว — ห้ามแจกซ้ำ', `${r.name}\nเมื่อ ${r.redeemedAt}`); break;
+    case 'NOT_FOUND': showResult('bad', 'ไม่พบผู้เล่น', 'ให้ผู้เล่นเปิดหน้าลงทะเบียนใน LINE ใหม่'); break;
+    case 'BAD_PIN': logout('PIN ถูกเปลี่ยน กรุณาเข้าสู่ระบบใหม่'); break;
+    case 'BUSY': showResult('warn', 'ระบบไม่ว่าง', 'สแกนใหม่อีกครั้ง'); break;
+    default: showResult('bad', 'เกิดข้อผิดพลาด', r.message || r.error || '');
+  }
+}
+
+/* ---------- offline queue (เฉพาะฐานสะสมแต้ม) ---------- */
+function enqueue(who) {
+  const q = lsGet(LS_QUEUE, []);
+  q.push(Object.assign({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 7), station: auth.station, pin: auth.pin }, who));
+  lsSet(LS_QUEUE, q);
+  updateMeta();
+}
+
+let flushing = false;
+async function flushQueue() {
+  if (flushing) return;
+  flushing = true;
+  try {
+    while (true) {
+      const q = lsGet(LS_QUEUE, []);
+      if (!q.length) break;
+      const item = q[0];
+      const payload = { action: 'scan', station: item.station, pin: item.pin, source: 'queued' };
+      if (item.code) payload.code = item.code; else payload.phone = item.phone;
+      let r;
+      try { r = await api(payload); } catch (e) { break; } // ยังออฟไลน์ ไว้ลองรอบหน้า
+      if (r.ok) sessionOk += r.result === 'STAMPED' ? 1 : 0;
+      else if (r.error === 'BUSY') break;
+      else failedQueued++;
+      lsSet(LS_QUEUE, lsGet(LS_QUEUE, []).filter((x) => x.id !== item.id));
+      updateMeta();
+    }
+  } finally {
+    flushing = false;
+    updateMeta();
+  }
+}
+setInterval(flushQueue, 10000);
+window.addEventListener('online', flushQueue);
+
+/* ---------- keep screen on ---------- */
+async function requestWake() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+function releaseWake() { try { wakeLock && wakeLock.release(); } catch (e) {} wakeLock = null; }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && auth) { requestWake(); flushQueue(); }
+});
+
+/* ---------- boot ---------- */
+(function boot() {
+  const saved = lsGet(LS_AUTH, null);
+  if (!saved) return;
+  auth = saved;
+  $('station').value = saved.station;
+  enterScan(); // เข้าได้ทันทีแม้ออฟไลน์
+  api({ action: 'staffLogin', station: saved.station, pin: saved.pin })
+    .then((r) => { if (!r.ok && r.error === 'BAD_PIN') logout('PIN ถูกเปลี่ยน กรุณาเข้าสู่ระบบใหม่'); })
+    .catch(() => {});
+  // เปิดเสียงหลังแตะหน้าจอครั้งแรก (เบราว์เซอร์บังคับ)
+  document.addEventListener('pointerdown', () => {
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch (e) {}
+  }, { once: true });
+})();
+</script>
+</body>
+</html>
