@@ -44,7 +44,11 @@
   .dots { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
   .dot { aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: #ECEEEC; color: #9AA19D; }
   .dot.on { background: var(--brand); color: #fff; }
-  .updated { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .dot.pop { animation: pop .6s ease; }
+  @keyframes pop { 0% { transform: scale(.4); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+  .updated { color: var(--muted); font-size: 12px; margin-top: 12px; min-height: 16px; }
+  .toast { position: fixed; left: 50%; top: 16px; transform: translate(-50%, -140%); background: var(--brand); color: #fff; font-weight: 700; padding: 12px 20px; border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,.18); transition: transform .3s ease; z-index: 10; white-space: nowrap; }
+  .toast.show { transform: translate(-50%, 0); }
   .spinner { width: 36px; height: 36px; border: 4px solid var(--line); border-top-color: var(--brand); border-radius: 50%; margin: 60px auto 14px; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   [hidden] { display: none !important; }
@@ -102,8 +106,10 @@
     <div class="banner" id="banner"></div>
     <div class="progress"><span>แต้มสะสม</span><b id="count">0/7</b></div>
     <div class="dots" id="dots"></div>
-    <button class="ghost" id="refreshBtn" type="button">อัปเดตแต้ม</button>
     <div class="updated" id="updated"></div>
+  </section>
+  <div class="toast" id="toast"></div>
+  <section hidden>
   </section>
 </div>
 
@@ -161,7 +167,7 @@ function save(p) {
 function handleLineErr(r) {
   if (r.error === 'INVALID_LINE_TOKEN' || r.error === 'NO_LINE_TOKEN') {
     if (liff.isInClient()) {
-      fatal('เซสชันหมดอายุ กรุณาปิดหน้านี้ แล้วกดเมนูลงทะเบียนอีกครั้ง');
+      fatal('เซสชันหมดอายุ กรุณาปิดหน้านี้ แล้วกดเมนูลงทะเบียนอีกครั้ง' + (r.detail ? ' (' + r.detail + ')' : ''));
     } else {
       liff.logout();
       liff.login({ redirectUri: location.href });
@@ -210,7 +216,7 @@ async function main() {
 
   try {
     const r = await api({ action: 'me', idToken: tok });
-    if (!r.ok) { handleLineErr(r); return; }
+    if (!r.ok) { if (!handleLineErr(r) && r.error === 'CONFIG_ERROR') fatal(r.message); return; }
     if (registering) return; // กำลังกดลงทะเบียนอยู่ ปล่อยให้ผลการลงทะเบียนแสดงเอง
     if (!r.registered) {
       if (cached) { // ข้อมูลในเครื่องไม่ใช่ของบัญชีนี้
@@ -291,10 +297,14 @@ function renderCard(p, fromCache) {
 
   const total = p.total || CONFIG.TOTAL;
   const done = new Set((p.done || []).map(String));
+  const prev = renderedDone; // null = วาดครั้งแรก ไม่ต้องฉลอง
+  const fresh = prev ? [...done].filter((s) => !prev.has(s)) : [];
   const dots = [];
   for (let i = 1; i <= total; i++) {
-    dots.push(`<div class="dot${done.has(String(i)) ? ' on' : ''}">${i}</div>`);
+    const s = String(i);
+    dots.push(`<div class="dot${done.has(s) ? ' on' : ''}${fresh.includes(s) ? ' pop' : ''}">${i}</div>`);
   }
+  renderedDone = done;
   $('dots').innerHTML = dots.join('');
   $('dots').style.gridTemplateColumns = `repeat(${total}, 1fr)`;
   $('count').textContent = `${done.size}/${total}`;
@@ -314,32 +324,70 @@ function renderCard(p, fromCache) {
     banner.textContent = 'เล่นแต่ละฐานเสร็จ แสดง QR นี้ให้สตาฟสแกนเพื่อรับแต้ม';
   }
 
-  $('updated').textContent = fromCache
-    ? 'ข้อมูลล่าสุดในเครื่อง — กำลังอัปเดต...'
-    : 'อัปเดตเมื่อ ' + new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  $('updated').textContent = '';
   show('card');
+
+  if (fresh.length) {
+    toast(done.size >= total ? `ครบ ${total} ฐานแล้ว! 🎉` : `ได้แต้มฐาน ${fresh.join(', ')} แล้ว ✓`);
+  } else if (prev && !prevRedeemed && p.redeemed) {
+    toast('แลกของรางวัลเรียบร้อย 🎁');
+  }
+  prevRedeemed = !!p.redeemed;
+  startPolling();
 }
+
+let renderedDone = null, prevRedeemed = false, toastTimer = null;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  try { navigator.vibrate && navigator.vibrate([80, 60, 80]); } catch (e) {}
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// ===== อัปเดตแต้มอัตโนมัติ =====
+// เช็กทุก 4 วินาทีเฉพาะตอนที่หน้านี้เปิดอยู่บนจอ
+// ถ้าไม่มีอะไรเปลี่ยน 3 นาทีจะหยุดเอง (กันระบบหนักตอนคนเปิดค้าง) แตะจอหรือสลับกลับมาจะเริ่มใหม่
+const POLL_MS = 4000, IDLE_STOP_MS = 180000;
+let pollTimer = null, lastChangeAt = Date.now(), lastSig = '';
+
+function sig(p) { return (p.done || []).join(',') + '|' + (p.redeemed ? 1 : 0); }
 
 async function refreshStatus() {
   if (refreshing || !state || !state.token) return;
   refreshing = true;
-  $('refreshBtn').disabled = true;
-  $('updated').textContent = 'กำลังอัปเดต...';
   try {
-    const r = await api({ action: 'status', token: state.token });
-    if (r.ok) { save(r); renderCard(r); }
-    else $('updated').textContent = r.message || 'อัปเดตไม่สำเร็จ';
+    const r = await api({ action: 'status', token: state.token }, 10000);
+    if (r.ok) {
+      const s = sig(r);
+      if (s !== lastSig) { lastSig = s; lastChangeAt = Date.now(); save(r); renderCard(r); }
+      $('updated').textContent = '';
+    }
   } catch (e) {
     $('updated').textContent = 'ออฟไลน์ — QR ยังใช้สแกนได้ตามปกติ';
   } finally {
     refreshing = false;
-    $('refreshBtn').disabled = false;
   }
 }
 
-$('refreshBtn').addEventListener('click', refreshStatus);
+function startPolling() {
+  if (state) lastSig = lastSig || sig(state);
+  if (pollTimer || !state || state.redeemed) return;
+  lastChangeAt = Date.now();
+  pollTimer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (!state || state.redeemed || Date.now() - lastChangeAt > IDLE_STOP_MS) { stopPolling(); return; }
+    refreshStatus();
+  }, POLL_MS);
+}
+function stopPolling() { clearInterval(pollTimer); pollTimer = null; }
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !$('card').hidden) refreshStatus();
+  if (document.visibilityState === 'visible' && !$('card').hidden) { refreshStatus(); startPolling(); }
+});
+document.addEventListener('pointerdown', () => {
+  if (!$('card').hidden && !pollTimer) { refreshStatus(); startPolling(); }
 });
 
 main();
