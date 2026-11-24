@@ -171,43 +171,59 @@ function handleLineErr(r) {
   return false;
 }
 
+let lineReady = null;   // Promise ที่ได้ idToken เมื่อ LINE พร้อม
+let registering = false;
+
+async function initLine() {
+  await liff.init({ liffId: CONFIG.LIFF_ID });
+  if (!liff.isLoggedIn()) {
+    liff.login({ redirectUri: location.href });
+    return new Promise(() => {}); // กำลัง redirect ไปล็อกอิน
+  }
+  const t = liff.getIDToken();
+  if (!t) throw new Error('NO_OPENID');
+  idToken = t;
+  return t;
+}
+
 async function main() {
   document.title = CONFIG.EVENT_NAME;
   $('eventName').textContent = CONFIG.EVENT_NAME;
   $('eventSub').textContent = CONFIG.EVENT_SUB;
 
-  // แสดง QR จากเครื่องก่อน (ใช้ได้แม้เน็ตไม่ดี) แล้วค่อยอัปเดต
+  // โชว์หน้าจอทันที ไม่รอเซิร์ฟเวอร์:
+  // - เคยลงทะเบียนในเครื่องนี้ → โชว์ QR ที่เก็บไว้
+  // - ยังไม่เคย → โชว์ฟอร์มเลย แล้วเช็กกับระบบเบื้องหลังระหว่างที่ผู้เล่นพิมพ์
   const cached = lsGet();
   if (cached && cached.token) renderCard(cached, true);
+  else showRegister();
 
+  lineReady = initLine();
+  let tok;
   try {
-    await liff.init({ liffId: CONFIG.LIFF_ID });
+    tok = await lineReady;
   } catch (e) {
-    if (!cached) fatal('เปิดผ่าน LINE ไม่สำเร็จ ลองปิดแล้วเปิดใหม่');
+    if (e && e.message === 'NO_OPENID') fatal('ระบบยังไม่ได้เปิดสิทธิ์ openid ใน LIFF — แจ้งผู้ดูแลระบบ');
+    else if (!cached) fatal('เปิดผ่าน LINE ไม่สำเร็จ ลองปิดแล้วเปิดใหม่');
     return;
   }
-  if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
-
-  idToken = liff.getIDToken();
-  if (!idToken) { fatal('ระบบยังไม่ได้เปิดสิทธิ์ openid ใน LIFF — แจ้งผู้ดูแลระบบ'); return; }
 
   try {
-    const r = await api({ action: 'me', idToken });
-    if (!r.ok) {
-      if (handleLineErr(r)) return;
-      if (!cached) fatal(r.message || 'เกิดข้อผิดพลาด');
-      return;
-    }
+    const r = await api({ action: 'me', idToken: tok });
+    if (!r.ok) { handleLineErr(r); return; }
+    if (registering) return; // กำลังกดลงทะเบียนอยู่ ปล่อยให้ผลการลงทะเบียนแสดงเอง
     if (!r.registered) {
-      lsSet(null); // ข้อมูลในเครื่องไม่ใช่ของบัญชีนี้
-      showRegister();
+      if (cached) { // ข้อมูลในเครื่องไม่ใช่ของบัญชีนี้
+        lsSet(null); state = null; drawnQr = null;
+        showRegister();
+      }
       return;
     }
     save(r);
-    renderCard(r);
+    renderCard(r); // เคยลงทะเบียนแล้ว (เช่นเปลี่ยนเครื่อง) → สลับไปโชว์ QR
   } catch (e) {
-    if (!cached) fatal('เชื่อมต่อไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
-    else $('updated').textContent = 'ออฟไลน์ — แสดง QR ล่าสุด (ยังใช้สแกนได้)';
+    if (cached) $('updated').textContent = 'ออฟไลน์ — แสดง QR ล่าสุด (ยังใช้สแกนได้)';
+    // ไม่มี cache: คงฟอร์มไว้ ถ้าเน็ตยังไม่ได้ตอนกดลงทะเบียนจะขึ้นแจ้งเตือนเอง
   }
 }
 
@@ -215,6 +231,7 @@ function showRegister() {
   const sel = $('deptSelect');
   const inp = $('deptInput');
   if (CONFIG.DEPARTMENTS.length) {
+    if (sel.options.length) { show('register'); return; }
     sel.innerHTML = '<option value="">— เลือกแผนก —</option>' +
       CONFIG.DEPARTMENTS.map((d) => `<option>${d.replace(/</g, '&lt;')}</option>`).join('');
     sel.hidden = false; inp.hidden = true;
@@ -230,7 +247,7 @@ $('regForm').addEventListener('submit', async (e) => {
   const phone = $('phone').value.replace(/\D/g, '');
   const dept = CONFIG.DEPARTMENTS.length ? $('deptSelect').value : $('deptInput').value.trim();
   const payload = {
-    action: 'register', idToken,
+    action: 'register',
     firstName: $('firstName').value.trim(),
     lastName: $('lastName').value.trim(),
     phone, department: dept,
@@ -243,13 +260,20 @@ $('regForm').addEventListener('submit', async (e) => {
 
   const btn = $('regBtn');
   btn.disabled = true; btn.textContent = 'กำลังบันทึก...'; err.textContent = '';
+  registering = true;
   try {
+    if (!idToken) {
+      try { await lineReady; }
+      catch (ex) { err.textContent = 'เชื่อมต่อ LINE ไม่สำเร็จ ลองปิดแล้วเปิดใหม่'; return; }
+    }
+    payload.idToken = idToken;
     const r = await api(payload);
     if (r.ok) { save(r); renderCard(r); }
     else if (!handleLineErr(r)) err.textContent = r.message || 'บันทึกไม่สำเร็จ';
   } catch (ex) {
     err.textContent = 'เชื่อมต่อไม่ได้ ลองกดอีกครั้ง';
   } finally {
+    registering = false;
     btn.disabled = false; btn.textContent = 'ลงทะเบียน';
   }
 });
